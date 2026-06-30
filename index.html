@@ -20,7 +20,7 @@
         
         <div class="bg-slate-700 rounded-2xl shadow-xl p-6 flex flex-col sm:flex-row justify-between items-center border border-slate-600">
             <h1 class="text-3xl font-bold text-white mb-4 sm:mb-0">
-                GPX <span class="text-cyan-400">Vibe</span> Tracker
+                GPX <span class="text-cyan-400">Dash</span>board
             </h1>
             
             <label class="cursor-pointer bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-2 px-6 rounded-xl shadow-lg transition-all duration-300 ease-in-out transform hover:-translate-y-1">
@@ -29,7 +29,7 @@
             </label>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="flex flex-col gap-6">
             
             <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col">
                 <div class="flex justify-between items-center mb-4">
@@ -43,8 +43,46 @@
 
             <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col">
                 <h2 class="text-xl font-semibold text-white mb-4">Analyse</h2>
-                <div class="flex-grow bg-slate-800 rounded-xl p-4 shadow-inner relative min-h-[400px]">
+                <div class="flex-grow bg-slate-800 rounded-xl p-4 shadow-inner relative min-h-[400px] w-full">
                     <canvas id="vibeChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col hidden" id="statsContainer">
+                <h2 class="text-xl font-semibold text-white mb-4">Fahrtdaten</h2>
+                
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Distanz</p>
+                        <p class="text-2xl font-bold text-cyan-400"><span id="stat-dist">0.00</span> <span class="text-sm font-normal text-slate-400">km</span></p>
+                    </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Dauer</p>
+                        <p class="text-2xl font-bold text-white" id="stat-time">00:00</p>
+                    </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Top-Speed</p>
+                        <p class="text-2xl font-bold text-white"><span id="stat-max-speed">0</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
+                    </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Ø-Speed</p>
+                        <p class="text-2xl font-bold text-white"><span id="stat-avg-speed">0</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
+                    </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Höchster Punkt</p>
+                        <p class="text-2xl font-bold text-amber-500"><span id="stat-max-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
+                    </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Tiefster Punkt</p>
+                        <p class="text-2xl font-bold text-amber-500"><span id="stat-min-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
+                    </div>
+
                 </div>
             </div>
 
@@ -137,6 +175,7 @@
         
         drawMap(currentRouteData);
         drawChart(currentRouteData);
+        calculateStats(currentRouteData);
     }
 
 
@@ -270,6 +309,73 @@
                 }
             }
         });
+    }
+    // --- 6. Statistiken berechnen und anzeigen ---
+    function calculateStats(routeData) {
+        if (routeData.length < 2) return;
+
+        // Arrays für Min/Max Berechnungen extrahieren
+        const speeds = routeData.map(pt => pt.speedKmh);
+        const elevations = routeData.map(pt => pt.elevation);
+
+        // 1. Min/Max Werte
+        const maxSpeed = Math.max(...speeds);
+        const maxEle = Math.max(...elevations);
+        const minEle = Math.min(...elevations);
+
+        // 2. Distanz berechnen (Haversine-Formel)
+        let totalDistanceKm = 0;
+        for (let i = 0; i < routeData.length - 1; i++) {
+            totalDistanceKm += getDistanceFromLatLonInKm(
+                routeData[i].lat, routeData[i].lon, 
+                routeData[i+1].lat, routeData[i+1].lon
+            );
+        }
+
+        // 3. Dauer und Durchschnittsgeschwindigkeit berechnen
+        const startTime = routeData[0].time;
+        const endTime = routeData[routeData.length - 1].time;
+        let durationStr = "00:00";
+        let avgSpeed = 0;
+
+        if (startTime && endTime) {
+            const diffMs = endTime - startTime;
+            const diffMins = Math.floor(diffMs / 60000);
+            const hours = Math.floor(diffMins / 60);
+            const mins = diffMins % 60;
+            
+            // Formatieren zu z.B. "1h 24m" oder "45m"
+            durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+            // Durchschnittsgeschwindigkeit = Strecke / Zeit(in Stunden)
+            const durationHours = diffMs / (1000 * 60 * 60);
+            if (durationHours > 0) {
+                avgSpeed = totalDistanceKm / durationHours;
+            }
+        }
+
+        // --- Werte in das HTML schreiben ---
+        document.getElementById('stat-dist').innerText = totalDistanceKm.toFixed(2);
+        document.getElementById('stat-time').innerText = durationStr;
+        document.getElementById('stat-max-speed').innerText = Math.round(maxSpeed);
+        document.getElementById('stat-avg-speed').innerText = Math.round(avgSpeed);
+        document.getElementById('stat-max-ele').innerText = Math.round(maxEle);
+        document.getElementById('stat-min-ele').innerText = Math.round(minEle);
+
+        // Statistik-Container sichtbar machen
+        document.getElementById('statsContainer').classList.remove('hidden');
+    }
+
+    // Hilfsfunktion: Berechnet Distanz zwischen zwei GPS-Koordinaten in Kilometern
+    function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Erdradius in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
     }
 </script>
 </body>
