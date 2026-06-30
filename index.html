@@ -50,10 +50,66 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
-        console.log("Vibe Tracker ist bereit!");
+    console.log("Vibe Tracker ist bereit!");
+
+    // Das Input-Feld aus dem HTML holen
+    const gpxInput = document.getElementById('gpxInput');
+
+    // Wir lauschen darauf, ob der Nutzer eine Datei auswählt
+    gpxInput.addEventListener('change', function(event) {
+        const file = event.target.files[0];
         
-        // Hier kommt gleich unsere Magie rein!
+        if (!file) return; // Falls der Nutzer auf "Abbrechen" klickt, machen wir nichts
+
+        console.log("Datei ausgewählt:", file.name);
+
+        // FileReader starten, um den Text der Datei zu lesen
+        const reader = new FileReader();
         
-    </script>
+        reader.onload = function(e) {
+            const gpxContent = e.target.result;
+            parseGPX(gpxContent);
+        };
+        
+        reader.readAsText(file);
+    });
+
+    // Diese Funktion zerlegt unseren GPX-Text in ein brauchbares JavaScript-Array
+    function parseGPX(gpxText) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(gpxText, "text/xml");
+        
+        // Alle Trackpunkte (<trkpt>) aus der Datei suchen
+        const trackPoints = xmlDoc.querySelectorAll("trkpt");
+        const routeData = [];
+
+        trackPoints.forEach(pt => {
+            // Attribute auslesen (Breiten- und Längengrad)
+            const lat = parseFloat(pt.getAttribute("lat"));
+            const lon = parseFloat(pt.getAttribute("lon"));
+            
+            // Kind-Elemente auslesen (sicherstellen, dass sie existieren)
+            const eleNode = pt.querySelector("ele");
+            const timeNode = pt.querySelector("time");
+            const speedNode = pt.querySelector("speed");
+
+            // Die Geschwindigkeit ist oft in m/s gespeichert, wir können sie später für Graphen in km/h umrechnen.
+            routeData.push({
+                lat: lat,
+                lon: lon,
+                elevation: eleNode ? parseFloat(eleNode.textContent) : 0,
+                time: timeNode ? new Date(timeNode.textContent) : null,
+                speed: speedNode ? parseFloat(speedNode.textContent) : 0
+            });
+        });
+
+        console.log(`Erfolgreich geparst! ${routeData.length} Wegpunkte gefunden.`);
+        console.log("Beispiel-Punkt:", routeData[0]);
+        
+        // Hier rufen wir im nächsten Schritt die Funktionen für Karte und Graph auf!
+        // drawMap(routeData);
+        // drawChart(routeData);
+    }
+</script>
 </body>
 </html>
