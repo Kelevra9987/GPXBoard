@@ -85,12 +85,12 @@
                     </div>
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Gas</p>
-                        <p class="text-2xl font-bold text-green-400"><span id="stat-max-accel">0.0</span> <span class="text-sm font-normal text-slate-400">m/s²</span></p>
+                        <p class="text-2xl font-bold text-green-400"><span id="stat-max-accel">0.00</span> <span class="text-sm font-normal text-slate-400">G</span></p>
                     </div>
 
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Bremse</p>
-                        <p class="text-2xl font-bold text-red-400"><span id="stat-max-brake">0.0</span> <span class="text-sm font-normal text-slate-400">m/s²</span></p>
+                        <p class="text-2xl font-bold text-red-400"><span id="stat-max-brake">0.00</span> <span class="text-sm font-normal text-slate-400">G</span></p>
                     </div>
                 </div>
                 </div>
@@ -461,7 +461,7 @@
                 avgSpeed = totalDistanceKm / durationHours;
             }
         }
-
+        
         document.getElementById('stat-dist').innerText = totalDistanceKm.toFixed(2);
         document.getElementById('stat-time').innerText = durationStr;
         document.getElementById('stat-max-speed').innerText = Math.round(maxSpeed);
@@ -469,11 +469,15 @@
         document.getElementById('stat-max-ele').innerText = Math.round(maxEle);
         document.getElementById('stat-min-ele').innerText = Math.round(minEle);
         
-        // NEU: Beschleunigung und Bremskraft eintragen (auf 1 Nachkommastelle gerundet)
-        document.getElementById('stat-max-accel').innerText = maxAcceleration.toFixed(1);
-        // Bei der Bremse nehmen wir den absoluten Wert (ohne Minuszeichen), liest sich schöner
-        document.getElementById('stat-max-brake').innerText = Math.abs(maxDeceleration).toFixed(1);
+        // NEU: Umrechnung in G-Kräfte (1 G = 9.81 m/s²)
+        const gForceAccel = maxAcceleration / 9.81;
+        const gForceBrake = Math.abs(maxDeceleration) / 9.81;
 
+        // Wir runden auf 2 Nachkommastellen für die feine Telemetrie-Optik
+        document.getElementById('stat-max-accel').innerText = gForceAccel.toFixed(2);
+        document.getElementById('stat-max-brake').innerText = gForceBrake.toFixed(2);
+
+        // Statistik-Container sichtbar machen
         document.getElementById('statsContainer').classList.remove('hidden');
     }
 
