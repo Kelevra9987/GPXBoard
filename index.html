@@ -9,6 +9,8 @@
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+
     <style>
         /* Wir geben der Karte eine feste Höhe, sonst wird sie nicht angezeigt */
         #map { height: 400px; }
@@ -18,15 +20,20 @@
 
     <div class="max-w-6xl mx-auto space-y-6">
         
-        <div class="bg-slate-700 rounded-2xl shadow-xl p-6 flex flex-col sm:flex-row justify-between items-center border border-slate-600">
-            <h1 class="text-3xl font-bold text-white mb-4 sm:mb-0">
-                GPX <span class="text-cyan-400">Dash</span>board
+        <div class="bg-slate-700 rounded-2xl shadow-xl p-6 flex flex-col sm:flex-row justify-between items-center border border-slate-600 gap-4">
+            <h1 class="text-3xl font-bold text-white">
+                DB <span class="text-cyan-400">Dash</span>board
             </h1>
             
-            <label class="cursor-pointer bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-2 px-6 rounded-xl shadow-lg transition-all duration-300 ease-in-out transform hover:-translate-y-1">
-                GPX Datei laden
-                <input type="file" id="gpxInput" accept=".gpx" class="hidden" />
-            </label>
+            <div class="flex items-center gap-4 w-full sm:w-auto">
+                <select id="tripSelector" class="hidden bg-slate-800 text-slate-200 font-semibold py-2 px-4 rounded-xl shadow-inner border border-slate-600 outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer flex-grow">
+                </select>
+
+                <label class="cursor-pointer bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-2 px-6 rounded-xl shadow-lg transition-all duration-300 ease-in-out transform hover:-translate-y-1 whitespace-nowrap">
+                    Datenbank laden
+                    <input type="file" id="dbInput" accept=".db,.sqlite" class="hidden" />
+                </label>
+            </div>
         </div>
 
         <div class="flex flex-col gap-6">
@@ -150,46 +157,114 @@
     });
 
 
-    // --- 3. Upload und Parsing ---
-    const gpxInput = document.getElementById('gpxInput');
-    gpxInput.addEventListener('change', function(event) {
+    // --- 3. SQLite Upload und Multi-Tour-Parsing ---
+    const dbInput = document.getElementById('dbInput');
+    const tripSelector = document.getElementById('tripSelector');
+    let globalDB = null; // Wir speichern die Datenbank global ab
+
+    dbInput.addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (!file) return;
 
+        console.log("Datenbank ausgewählt:", file.name);
+
         const reader = new FileReader();
-        reader.onload = function(e) {
-            parseGPX(e.target.result);
+        reader.onload = async function(e) {
+            // Datenbanken sind binär, also Uint8Array nutzen
+            const Uints = new Uint8Array(e.target.result);
+            await parseDatabase(Uints);
         };
-        reader.readAsText(file);
+        reader.readAsArrayBuffer(file); 
     });
 
-    function parseGPX(gpxText) {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(gpxText, "text/xml");
+    async function parseDatabase(uints) {
+        console.log("Initialisiere Datenbank-Engine...");
         
-        const trackPoints = xmlDoc.querySelectorAll("trkpt");
-        currentRouteData = []; // Vorherige Route löschen
+        // sql.js laden
+        const SQL = await initSqlJs({
+            locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+        });
+        
+        globalDB = new SQL.Database(uints);
+        
+        // Hole alle Fahrten aus der Session-Tabelle, sortiert nach der neuesten
+        const sessionsQuery = globalDB.exec("SELECT rowid, start, distance FROM sesstb ORDER BY rowid DESC");
+        
+        if (sessionsQuery.length === 0) {
+            alert("Keine Fahrten in der Datenbank gefunden!");
+            return;
+        }
 
-        trackPoints.forEach(pt => {
-            const lat = parseFloat(pt.getAttribute("lat"));
-            const lon = parseFloat(pt.getAttribute("lon"));
-            const eleNode = pt.querySelector("ele");
-            const timeNode = pt.querySelector("time");
-            const speedNode = pt.querySelector("speed");
+        // Dropdown leeren und neu befüllen
+        tripSelector.innerHTML = '';
+        const rows = sessionsQuery[0].values;
+        
+        rows.forEach(row => {
+            const sid = row[0];
+            const startText = row[1] || `Tour vom ${sid}`; // Fallback, falls 'start' leer ist
+            
+            const option = document.createElement('option');
+            option.value = sid;
+            option.textContent = `Tour: ${startText} (ID: ${sid})`;
+            tripSelector.appendChild(option);
+        });
+
+        // Dropdown sichtbar machen
+        tripSelector.classList.remove('hidden');
+
+        // Die allererste Fahrt aus der Liste direkt laden
+        loadTrip(rows[0][0]);
+    }
+
+    // Wenn der Nutzer eine andere Fahrt im Dropdown auswählt
+    tripSelector.addEventListener('change', function() {
+        console.log("Lade Tour ID:", this.value);
+        loadTrip(this.value);
+    });
+
+    // Diese Funktion holt die GPS-Punkte für eine bestimmte Session-ID (sid)
+    function loadTrip(sid) {
+        const routeResult = globalDB.exec(`
+            SELECT latitude, longitude, speed, altitude, timestamp 
+            FROM pottb 
+            WHERE sid = ${sid} 
+            ORDER BY timestamp ASC
+        `);
+
+        if (routeResult.length === 0) {
+            console.log("Keine GPS-Punkte für diese Tour gefunden.");
+            return;
+        }
+
+        currentRouteData = [];
+        const rows = routeResult[0].values;
+        
+        rows.forEach(row => {
+            const lat = row[0];
+            const lon = row[1];
+            const speedMs = row[2];
+            const ele = row[3];
+            let timeVal = row[4]; 
+            
+            // Unix-Timestamp in Millisekunden umrechnen, falls er in Sekunden gespeichert ist
+            if (timeVal < 10000000000) timeVal *= 1000;
+            const dateObj = new Date(timeVal);
 
             currentRouteData.push({
                 lat: lat,
                 lon: lon,
-                elevation: eleNode ? parseFloat(eleNode.textContent) : 0,
-                time: timeNode ? new Date(timeNode.textContent) : null,
-                // Umrechnung von m/s in km/h für den coolen Speed-Graphen
-                speedKmh: speedNode ? parseFloat(speedNode.textContent) * 3.6 : 0
+                elevation: ele,
+                time: dateObj,
+                speedKmh: speedMs * 3.6 // m/s in km/h
             });
         });
 
-        // Toggle-Button sichtbar machen
-        toggleBtn.classList.remove('hidden');
+        console.log(`Erfolgreich geladen! ${currentRouteData.length} Wegpunkte auf der Karte.`);
+
+        // Toggle-Button für die Farbe sichtbar machen
+        document.getElementById('toggleColorBtn').classList.remove('hidden');
         
+        // Karte, Chart und Statistiken mit den neuen Daten updaten!
         drawMap(currentRouteData);
         drawChart(currentRouteData);
         calculateStats(currentRouteData);
@@ -461,7 +536,7 @@
                 avgSpeed = totalDistanceKm / durationHours;
             }
         }
-        
+
         document.getElementById('stat-dist').innerText = totalDistanceKm.toFixed(2);
         document.getElementById('stat-time').innerText = durationStr;
         document.getElementById('stat-max-speed').innerText = Math.round(maxSpeed);
