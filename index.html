@@ -52,48 +52,39 @@
     <script>
     console.log("Vibe Tracker ist bereit!");
 
-    // Das Input-Feld aus dem HTML holen
     const gpxInput = document.getElementById('gpxInput');
+    
+    // Globale Variablen für Karte und Linie (damit wir sie bei neuen Uploads überschreiben können)
+    let map; 
+    let polyline;
 
-    // Wir lauschen darauf, ob der Nutzer eine Datei auswählt
     gpxInput.addEventListener('change', function(event) {
         const file = event.target.files[0];
-        
-        if (!file) return; // Falls der Nutzer auf "Abbrechen" klickt, machen wir nichts
+        if (!file) return;
 
         console.log("Datei ausgewählt:", file.name);
 
-        // FileReader starten, um den Text der Datei zu lesen
         const reader = new FileReader();
-        
         reader.onload = function(e) {
-            const gpxContent = e.target.result;
-            parseGPX(gpxContent);
+            parseGPX(e.target.result);
         };
-        
         reader.readAsText(file);
     });
 
-    // Diese Funktion zerlegt unseren GPX-Text in ein brauchbares JavaScript-Array
     function parseGPX(gpxText) {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(gpxText, "text/xml");
         
-        // Alle Trackpunkte (<trkpt>) aus der Datei suchen
         const trackPoints = xmlDoc.querySelectorAll("trkpt");
         const routeData = [];
 
         trackPoints.forEach(pt => {
-            // Attribute auslesen (Breiten- und Längengrad)
             const lat = parseFloat(pt.getAttribute("lat"));
             const lon = parseFloat(pt.getAttribute("lon"));
-            
-            // Kind-Elemente auslesen (sicherstellen, dass sie existieren)
             const eleNode = pt.querySelector("ele");
             const timeNode = pt.querySelector("time");
             const speedNode = pt.querySelector("speed");
 
-            // Die Geschwindigkeit ist oft in m/s gespeichert, wir können sie später für Graphen in km/h umrechnen.
             routeData.push({
                 lat: lat,
                 lon: lon,
@@ -104,11 +95,45 @@
         });
 
         console.log(`Erfolgreich geparst! ${routeData.length} Wegpunkte gefunden.`);
-        console.log("Beispiel-Punkt:", routeData[0]);
         
-        // Hier rufen wir im nächsten Schritt die Funktionen für Karte und Graph auf!
-        // drawMap(routeData);
-        // drawChart(routeData);
+        // Karte zeichnen aufrufen!
+        drawMap(routeData);
+        
+        // drawChart(routeData); // Kommt als Nächstes!
+    }
+
+    function drawMap(routeData) {
+        // 1. Wenn noch keine Karte existiert, initialisieren wir sie
+        if (!map) {
+            // Startpunkt Leipzig, Zoom-Level 13
+            map = L.map('map').setView([51.340199, 12.360103], 13); 
+
+            // Ein schickes Dark-Mode Karten-Theme für den perfekten Vibe
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }).addTo(map);
+        }
+
+        // 2. Falls schon eine Route auf der Karte liegt (z. B. 2. Upload), entfernen wir sie
+        if (polyline) {
+            map.removeLayer(polyline);
+        }
+
+        // 3. Koordinaten aus unserem routeData Array extrahieren: Leaflet braucht Format [[lat, lon], ...]
+        const coordinates = routeData.map(pt => [pt.lat, pt.lon]);
+
+        // 4. Die Linie zeichnen! Farbe: '#06b6d4' entspricht 'cyan-500' in Tailwind
+        polyline = L.polyline(coordinates, {
+            color: '#06b6d4', 
+            weight: 4,        // Liniendicke
+            opacity: 0.8,     // Leicht transparent
+            lineJoin: 'round' // Weiche Kurven
+        }).addTo(map);
+
+        // 5. Die Karte automatisch heranzoomen und so zentrieren, dass die ganze Route sichtbar ist
+        map.fitBounds(polyline.getBounds());
     }
 </script>
 </body>
