@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPX Vibe Tracker</title>
+    <title>GPX Board by Kelevra</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -41,6 +41,8 @@
                 <div id="map" class="rounded-xl overflow-hidden shadow-inner bg-slate-800 z-0 flex-grow min-h-[400px]"></div>
             </div>
 
+            <div id="exportArea" class="flex flex-col gap-6 p-4 -m-4 rounded-3xl">
+            
             <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col">
                 <h2 class="text-xl font-semibold text-white mb-4">Analyse</h2>
                 <div class="flex-grow bg-slate-800 rounded-xl p-4 shadow-inner relative min-h-[400px] w-full">
@@ -49,48 +51,53 @@
             </div>
 
             <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col hidden" id="statsContainer">
-                <h2 class="text-xl font-semibold text-white mb-4">Fahrtdaten</h2>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold text-white">Fahrtdaten</h2>
+                    <button id="exportBtn" class="bg-indigo-500 hover:bg-indigo-400 text-white font-bold py-1.5 px-4 rounded-xl shadow-lg transition-all duration-300 transform hover:-translate-y-1 text-sm flex items-center gap-2">
+                        <span>📸</span> Als Bild teilen
+                    </button>
+                </div>
                 
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Distanz</p>
                         <p class="text-2xl font-bold text-cyan-400"><span id="stat-dist">0.00</span> <span class="text-sm font-normal text-slate-400">km</span></p>
                     </div>
-
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Dauer</p>
                         <p class="text-2xl font-bold text-white" id="stat-time">00:00</p>
                     </div>
-
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Top-Speed</p>
                         <p class="text-2xl font-bold text-white"><span id="stat-max-speed">0</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
                     </div>
-
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Ø-Speed</p>
                         <p class="text-2xl font-bold text-white"><span id="stat-avg-speed">0</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
                     </div>
-
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
-                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Höchster Punkt</p>
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Höhe</p>
                         <p class="text-2xl font-bold text-amber-500"><span id="stat-max-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
                     </div>
-
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
-                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Tiefster Punkt</p>
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Min Höhe</p>
                         <p class="text-2xl font-bold text-amber-500"><span id="stat-min-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
                     </div>
-
                 </div>
             </div>
+
+            <div id="watermark" class="hidden text-center text-slate-400 text-sm font-medium mt-2">
+                Tour von <span id="wm-name" class="text-cyan-400"></span> am <span id="wm-date" class="text-white"></span>
+            </div>
+
+        </div>
 
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
     <script>
     console.log("Vibe Tracker ist bereit!");
@@ -377,6 +384,46 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
     }
+    // --- 7. Export als Bild (mit Name und Graphen) ---
+    document.getElementById('exportBtn').addEventListener('click', function() {
+        
+        // 1. Namen des Fahrers abfragen
+        const riderName = prompt("Wer ist diese Legenden-Tour gefahren?", "Vibe Rider") || "Vibe Rider";
+        
+        // 2. Datum der Fahrt aus den GPX-Daten holen (z. B. "30.6.2026")
+        const tourDate = currentRouteData[0]?.time 
+            ? currentRouteData[0].time.toLocaleDateString('de-DE') 
+            : 'Unbekanntes Datum';
+
+        // Elemente laden
+        const exportArea = document.getElementById('exportArea');
+        const btn = this;
+        const watermark = document.getElementById('watermark');
+        
+        // 3. Wasserzeichen ausfüllen und anzeigen, Button verstecken
+        document.getElementById('wm-name').innerText = riderName;
+        document.getElementById('wm-date').innerText = tourDate;
+        watermark.classList.remove('hidden');
+        btn.style.display = 'none';
+        
+        // 4. Foto schießen!
+        html2canvas(exportArea, {
+            backgroundColor: '#1e293b', // Entspricht tailwind slate-800 für sauberen Hintergrund
+            scale: 2 // Hohe Auflösung
+        }).then(canvas => {
+            
+            // 5. Nach dem Foto: Wasserzeichen wieder verstecken und Button anzeigen
+            watermark.classList.add('hidden');
+            btn.style.display = 'flex';
+            
+            // 6. Download starten
+            const link = document.createElement('a');
+            // Dateiname wird automatisch aus dem Fahrernamen generiert
+            link.download = `Tour-${riderName.replace(/\s+/g, '-')}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        });
+    });
 </script>
 </body>
 </html>
