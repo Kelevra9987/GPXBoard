@@ -233,26 +233,65 @@
             }
         });
 
-        // 3. Den Marker setzen (wenn wir überhaupt eine Geschwindigkeit haben)
+        // 3. Top-Speed-Marker setzen
         if (maxSpeedPoint && maxSpeedPoint.speedKmh > 0) {
             const speedMarker = L.circleMarker([maxSpeedPoint.lat, maxSpeedPoint.lon], {
                 radius: 8,
-                fillColor: "#ef4444", // Ein schönes Tailwind-Rot
-                color: "#ffffff",     // Weißer Rand für den Kontrast
+                fillColor: "#ef4444", // Rot
+                color: "#ffffff",
                 weight: 2,
                 opacity: 1,
                 fillOpacity: 0.9
             }).addTo(mapLayerGroup);
 
-            // Zeitstempel schön formatieren für das Popup
             const timeString = maxSpeedPoint.time ? maxSpeedPoint.time.toLocaleTimeString('de-DE') : '';
-
-            // Ein kleines HTML-Popup an den Marker hängen
             speedMarker.bindPopup(`
                 <div style="text-align: center; font-family: sans-serif;">
                     <strong style="color: #ef4444; font-size: 1.1rem;">TOP SPEED</strong><br>
                     <span style="font-size: 1.3rem; font-weight: bold; color: #1e293b;">${Math.round(maxSpeedPoint.speedKmh)} km/h</span><br>
                     <span style="color: #64748b; font-size: 0.8rem;">um ${timeString} Uhr</span>
+                </div>
+            `);
+        }
+
+        // 4. Start- und End-Marker setzen
+        if (routeData.length > 0) {
+            const startPt = routeData[0];
+            const endPt = routeData[routeData.length - 1];
+
+            // Start-Marker (Grün)
+            const startMarker = L.circleMarker([startPt.lat, startPt.lon], {
+                radius: 6,
+                fillColor: "#22c55e", // Grün
+                color: "#ffffff",
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).addTo(mapLayerGroup);
+
+            const startTimeStr = startPt.time ? startPt.time.toLocaleTimeString('de-DE') : '';
+            startMarker.bindPopup(`
+                <div style="text-align: center; font-family: sans-serif;">
+                    <strong style="color: #22c55e; font-size: 1.1rem;">START</strong><br>
+                    <span style="color: #64748b; font-size: 0.8rem;">um ${startTimeStr} Uhr</span>
+                </div>
+            `);
+
+            // End-Marker (Violett)
+            const endMarker = L.circleMarker([endPt.lat, endPt.lon], {
+                radius: 6,
+                fillColor: "#d946ef", // Violett
+                color: "#ffffff",
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).addTo(mapLayerGroup);
+
+            const endTimeStr = endPt.time ? endPt.time.toLocaleTimeString('de-DE') : '';
+            endMarker.bindPopup(`
+                <div style="text-align: center; font-family: sans-serif;">
+                    <strong style="color: #d946ef; font-size: 1.1rem;">ZIEL</strong><br>
+                    <span style="color: #64748b; font-size: 0.8rem;">um ${endTimeStr} Uhr</span>
                 </div>
             `);
         }
