@@ -31,15 +31,20 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600">
-                <h2 class="text-xl font-semibold text-white mb-4">Route</h2>
-                <div id="map" class="rounded-xl overflow-hidden shadow-inner bg-slate-800 z-0"></div>
+            <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold text-white">Route</h2>
+                    <button id="toggleColorBtn" class="hidden bg-slate-600 hover:bg-slate-500 text-xs text-white py-1.5 px-3 rounded-lg shadow transition-colors font-bold tracking-wide">
+                        Speed-Map: AUS
+                    </button>
+                </div>
+                <div id="map" class="rounded-xl overflow-hidden shadow-inner bg-slate-800 z-0 flex-grow min-h-[400px]"></div>
             </div>
 
             <div class="bg-slate-700 rounded-2xl shadow-xl p-6 border border-slate-600 flex flex-col">
-                <h2 class="text-xl font-semibold text-white mb-4">Geschwindigkeit</h2>
-                <div class="flex-grow bg-slate-800 rounded-xl p-4 shadow-inner flex items-center justify-center min-h-[400px]">
-                    <canvas id="speedChart"></canvas>
+                <h2 class="text-xl font-semibold text-white mb-4">Analyse</h2>
+                <div class="flex-grow bg-slate-800 rounded-xl p-4 shadow-inner relative min-h-[400px]">
+                    <canvas id="vibeChart"></canvas>
                 </div>
             </div>
 
@@ -52,17 +57,49 @@
     <script>
     console.log("Vibe Tracker ist bereit!");
 
-    const gpxInput = document.getElementById('gpxInput');
-    
-    // Globale Variablen für Karte und Linie (damit wir sie bei neuen Uploads überschreiben können)
+    // --- Globale Variablen ---
     let map; 
-    let polyline;
+    let mapLayerGroup; // Ein unsichtbarer Ordner, in den wir alle Linien packen
+    let currentRouteData = []; // Hier speichern wir die Route, damit wir sie auf Knopfdruck neu zeichnen können
+    let isSpeedColorMode = false;
 
+    // --- 1. Karte SOFORT laden ---
+    // Startpunkt Leipzig (deine Heimat), Zoom-Level 13
+    map = L.map('map').setView([51.340199, 12.360103], 13); 
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+    }).addTo(map);
+
+    // Diese Gruppe liegt auf der Karte. Wenn wir sie leeren, verschwindet die Route.
+    mapLayerGroup = L.featureGroup().addTo(map);
+
+
+    // --- 2. Button-Logik für Speed-Toggle ---
+    const toggleBtn = document.getElementById('toggleColorBtn');
+    toggleBtn.addEventListener('click', function() {
+        // Modus umkehren
+        isSpeedColorMode = !isSpeedColorMode;
+        
+        // Button optisch anpassen
+        this.innerText = isSpeedColorMode ? "Speed-Map: AN" : "Speed-Map: AUS";
+        this.classList.toggle('bg-cyan-600', isSpeedColorMode);
+        this.classList.toggle('text-slate-900', isSpeedColorMode);
+        this.classList.toggle('bg-slate-600', !isSpeedColorMode);
+        
+        // Route neu zeichnen, wenn Daten da sind
+        if (currentRouteData.length > 0) {
+            drawMap(currentRouteData);
+        }
+    });
+
+
+    // --- 3. Upload und Parsing ---
+    const gpxInput = document.getElementById('gpxInput');
     gpxInput.addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (!file) return;
-
-        console.log("Datei ausgewählt:", file.name);
 
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -76,7 +113,7 @@
         const xmlDoc = parser.parseFromString(gpxText, "text/xml");
         
         const trackPoints = xmlDoc.querySelectorAll("trkpt");
-        const routeData = [];
+        currentRouteData = []; // Vorherige Route löschen
 
         trackPoints.forEach(pt => {
             const lat = parseFloat(pt.getAttribute("lat"));
@@ -85,55 +122,154 @@
             const timeNode = pt.querySelector("time");
             const speedNode = pt.querySelector("speed");
 
-            routeData.push({
+            currentRouteData.push({
                 lat: lat,
                 lon: lon,
                 elevation: eleNode ? parseFloat(eleNode.textContent) : 0,
                 time: timeNode ? new Date(timeNode.textContent) : null,
-                speed: speedNode ? parseFloat(speedNode.textContent) : 0
+                // Umrechnung von m/s in km/h für den coolen Speed-Graphen
+                speedKmh: speedNode ? parseFloat(speedNode.textContent) * 3.6 : 0
             });
         });
 
-        console.log(`Erfolgreich geparst! ${routeData.length} Wegpunkte gefunden.`);
+        // Toggle-Button sichtbar machen
+        toggleBtn.classList.remove('hidden');
         
-        // Karte zeichnen aufrufen!
-        drawMap(routeData);
-        
-        // drawChart(routeData); // Kommt als Nächstes!
+        drawMap(currentRouteData);
+        drawChart(currentRouteData);
     }
 
+
+    // --- 4. Route auf die Karte zeichnen ---
     function drawMap(routeData) {
-        // 1. Wenn noch keine Karte existiert, initialisieren wir sie
-        if (!map) {
-            // Startpunkt Leipzig, Zoom-Level 13
-            map = L.map('map').setView([51.340199, 12.360103], 13); 
+        // Alte Route restlos entfernen
+        mapLayerGroup.clearLayers();
 
-            // Ein schickes Dark-Mode Karten-Theme für den perfekten Vibe
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-                subdomains: 'abcd',
-                maxZoom: 20
-            }).addTo(map);
+        if (!isSpeedColorMode) {
+            // STANDARD MODUS: Eine einzige, durchgehende Cyan-Linie
+            const coordinates = routeData.map(pt => [pt.lat, pt.lon]);
+            L.polyline(coordinates, {
+                color: '#06b6d4', 
+                weight: 4,        
+                opacity: 0.8,     
+                lineJoin: 'round'
+            }).addTo(mapLayerGroup);
+
+        } else {
+            // SPEED MODUS: Viele kleine Linienabschnitte in unterschiedlichen Farben
+            // Zuerst die Maximalgeschwindigkeit ermitteln (für die Farbskala)
+            const speeds = routeData.map(pt => pt.speedKmh);
+            let maxSpeed = Math.max(...speeds);
+            if (maxSpeed <= 0) maxSpeed = 1; // Division durch Null verhindern
+
+            for (let i = 0; i < routeData.length - 1; i++) {
+                const p1 = routeData[i];
+                const p2 = routeData[i+1];
+                
+                // Wir nehmen den Speed vom Startpunkt des Segments
+                const currentSpeed = p1.speedKmh;
+                
+                // Mathe-Magie: 200 = Cyan, 0 = Rot. Je schneller, desto röter.
+                const hue = 200 - ((currentSpeed / maxSpeed) * 200);
+                const color = `hsl(${hue}, 100%, 50%)`;
+
+                L.polyline([[p1.lat, p1.lon], [p2.lat, p2.lon]], {
+                    color: color,
+                    weight: 4,
+                    opacity: 0.9,
+                    lineJoin: 'round'
+                }).addTo(mapLayerGroup);
+            }
         }
 
-        // 2. Falls schon eine Route auf der Karte liegt (z. B. 2. Upload), entfernen wir sie
-        if (polyline) {
-            map.removeLayer(polyline);
+        // Karte geschmeidig an die neue Route anpassen
+        map.fitBounds(mapLayerGroup.getBounds(), { padding: [20, 20] });
+
+        
+    }
+    // --- 5. Chart.js Graph zeichnen ---
+    // Globale Variable für den Chart, damit wir ihn bei neuem Upload zerstören und neu bauen können
+    let vibeChartInstance = null;
+
+    function drawChart(routeData) {
+        const ctx = document.getElementById('vibeChart').getContext('2d');
+
+        // Alten Chart killen, bevor wir einen neuen malen (verhindert Glitches)
+        if (vibeChartInstance) {
+            vibeChartInstance.destroy();
         }
 
-        // 3. Koordinaten aus unserem routeData Array extrahieren: Leaflet braucht Format [[lat, lon], ...]
-        const coordinates = routeData.map(pt => [pt.lat, pt.lon]);
+        // Daten für den Chart vorbereiten
+        // Wir formatieren die Zeitstempel zu lesbaren Uhrzeiten (HH:MM:SS)
+        const labels = routeData.map(pt => pt.time ? pt.time.toLocaleTimeString('de-DE') : '');
+        const speedData = routeData.map(pt => pt.speedKmh);
+        const eleData = routeData.map(pt => pt.elevation);
 
-        // 4. Die Linie zeichnen! Farbe: '#06b6d4' entspricht 'cyan-500' in Tailwind
-        polyline = L.polyline(coordinates, {
-            color: '#06b6d4', 
-            weight: 4,        // Liniendicke
-            opacity: 0.8,     // Leicht transparent
-            lineJoin: 'round' // Weiche Kurven
-        }).addTo(map);
-
-        // 5. Die Karte automatisch heranzoomen und so zentrieren, dass die ganze Route sichtbar ist
-        map.fitBounds(polyline.getBounds());
+        vibeChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Speed (km/h)',
+                        data: speedData,
+                        borderColor: '#06b6d4', // Unser Cyan-Blau
+                        backgroundColor: 'rgba(6, 182, 212, 0.1)', // Leichter Schimmer unter der Linie
+                        borderWidth: 2,
+                        yAxisID: 'y', // Bindung an linke Achse
+                        fill: true,
+                        pointRadius: 0, // Versteckt die kleinen Punkte für einen cleanen Look
+                        tension: 0.4 // Macht die Linie geschmeidig abgerundet
+                    },
+                    {
+                        label: 'Höhe (m)',
+                        data: eleData,
+                        borderColor: '#f59e0b', // Amber/Orange
+                        backgroundColor: 'rgba(245, 158, 11, 0.0)',
+                        borderWidth: 2,
+                        yAxisID: 'y1', // Bindung an rechte Achse
+                        fill: false,
+                        pointRadius: 0,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false, // Tooltip zeigt beide Werte, wenn man nur in der Nähe ist
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#cbd5e1' } // Textfarbe Legende
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#94a3b8', maxTicksLimit: 8 }, // Nicht zu viele Zeiten auf der X-Achse
+                        grid: { color: '#334155' } // Dunkles Gitternetz
+                    },
+                    y: { // Linke Achse (Speed)
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'km/h', color: '#06b6d4' },
+                        ticks: { color: '#06b6d4' },
+                        grid: { color: '#334155' }
+                    },
+                    y1: { // Rechte Achse (Höhe)
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: { display: true, text: 'Meter', color: '#f59e0b' },
+                        ticks: { color: '#f59e0b' },
+                        grid: { drawOnChartArea: false } // Verhindert Gitter-Chaos
+                    }
+                }
+            }
+        });
     }
 </script>
 </body>
