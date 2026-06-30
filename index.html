@@ -191,8 +191,9 @@
         // Alte Route restlos entfernen
         mapLayerGroup.clearLayers();
 
+        // 1. Die Route zeichnen (entweder einfarbig oder als Speed-Map)
         if (!isSpeedColorMode) {
-            // STANDARD MODUS: Eine einzige, durchgehende Cyan-Linie
+            // STANDARD MODUS
             const coordinates = routeData.map(pt => [pt.lat, pt.lon]);
             L.polyline(coordinates, {
                 color: '#06b6d4', 
@@ -202,21 +203,17 @@
             }).addTo(mapLayerGroup);
 
         } else {
-            // SPEED MODUS: Viele kleine Linienabschnitte in unterschiedlichen Farben
-            // Zuerst die Maximalgeschwindigkeit ermitteln (für die Farbskala)
+            // SPEED MODUS
             const speeds = routeData.map(pt => pt.speedKmh);
-            let maxSpeed = Math.max(...speeds);
-            if (maxSpeed <= 0) maxSpeed = 1; // Division durch Null verhindern
+            let maxSpeedForColor = Math.max(...speeds);
+            if (maxSpeedForColor <= 0) maxSpeedForColor = 1; 
 
             for (let i = 0; i < routeData.length - 1; i++) {
                 const p1 = routeData[i];
                 const p2 = routeData[i+1];
-                
-                // Wir nehmen den Speed vom Startpunkt des Segments
                 const currentSpeed = p1.speedKmh;
                 
-                // Mathe-Magie: 200 = Cyan, 0 = Rot. Je schneller, desto röter.
-                const hue = 200 - ((currentSpeed / maxSpeed) * 200);
+                const hue = 200 - ((currentSpeed / maxSpeedForColor) * 200);
                 const color = `hsl(${hue}, 100%, 50%)`;
 
                 L.polyline([[p1.lat, p1.lon], [p2.lat, p2.lon]], {
@@ -228,10 +225,40 @@
             }
         }
 
+        // 2. Den Top-Speed-Punkt finden
+        let maxSpeedPoint = routeData[0];
+        routeData.forEach(pt => {
+            if (pt.speedKmh > maxSpeedPoint.speedKmh) {
+                maxSpeedPoint = pt;
+            }
+        });
+
+        // 3. Den Marker setzen (wenn wir überhaupt eine Geschwindigkeit haben)
+        if (maxSpeedPoint && maxSpeedPoint.speedKmh > 0) {
+            const speedMarker = L.circleMarker([maxSpeedPoint.lat, maxSpeedPoint.lon], {
+                radius: 8,
+                fillColor: "#ef4444", // Ein schönes Tailwind-Rot
+                color: "#ffffff",     // Weißer Rand für den Kontrast
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).addTo(mapLayerGroup);
+
+            // Zeitstempel schön formatieren für das Popup
+            const timeString = maxSpeedPoint.time ? maxSpeedPoint.time.toLocaleTimeString('de-DE') : '';
+
+            // Ein kleines HTML-Popup an den Marker hängen
+            speedMarker.bindPopup(`
+                <div style="text-align: center; font-family: sans-serif;">
+                    <strong style="color: #ef4444; font-size: 1.1rem;">TOP SPEED</strong><br>
+                    <span style="font-size: 1.3rem; font-weight: bold; color: #1e293b;">${Math.round(maxSpeedPoint.speedKmh)} km/h</span><br>
+                    <span style="color: #64748b; font-size: 0.8rem;">um ${timeString} Uhr</span>
+                </div>
+            `);
+        }
+
         // Karte geschmeidig an die neue Route anpassen
         map.fitBounds(mapLayerGroup.getBounds(), { padding: [20, 20] });
-
-        
     }
     // --- 5. Chart.js Graph zeichnen ---
     // Globale Variable für den Chart, damit wir ihn bei neuem Upload zerstören und neu bauen können
