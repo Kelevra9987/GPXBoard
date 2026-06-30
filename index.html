@@ -58,7 +58,7 @@
                     </button>
                 </div>
                 
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4">
                     <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Distanz</p>
                         <p class="text-2xl font-bold text-cyan-400"><span id="stat-dist">0.00</span> <span class="text-sm font-normal text-slate-400">km</span></p>
@@ -83,6 +83,16 @@
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Min Höhe</p>
                         <p class="text-2xl font-bold text-amber-500"><span id="stat-min-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
                     </div>
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Gas</p>
+                        <p class="text-2xl font-bold text-green-400"><span id="stat-max-accel">0.0</span> <span class="text-sm font-normal text-slate-400">m/s²</span></p>
+                    </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Bremse</p>
+                        <p class="text-2xl font-bold text-red-400"><span id="stat-max-brake">0.0</span> <span class="text-sm font-normal text-slate-400">m/s²</span></p>
+                    </div>
+                </div>
                 </div>
             </div>
 
@@ -387,25 +397,52 @@
     function calculateStats(routeData) {
         if (routeData.length < 2) return;
 
-        // Arrays für Min/Max Berechnungen extrahieren
         const speeds = routeData.map(pt => pt.speedKmh);
         const elevations = routeData.map(pt => pt.elevation);
 
-        // 1. Min/Max Werte
         const maxSpeed = Math.max(...speeds);
         const maxEle = Math.max(...elevations);
         const minEle = Math.min(...elevations);
 
-        // 2. Distanz berechnen (Haversine-Formel)
         let totalDistanceKm = 0;
+        let maxAcceleration = 0;
+        let maxDeceleration = 0;
+
         for (let i = 0; i < routeData.length - 1; i++) {
+            const pt1 = routeData[i];
+            const pt2 = routeData[i+1];
+
+            // Distanz
             totalDistanceKm += getDistanceFromLatLonInKm(
-                routeData[i].lat, routeData[i].lon, 
-                routeData[i+1].lat, routeData[i+1].lon
+                pt1.lat, pt1.lon, 
+                pt2.lat, pt2.lon
             );
+
+            // Beschleunigung berechnen
+            if (pt1.time && pt2.time) {
+                // Zeitdifferenz in Sekunden
+                const timeDiffSec = (pt2.time - pt1.time) / 1000;
+                
+                if (timeDiffSec > 0) {
+                    // Geschwindigkeit von km/h zurück in m/s für die korrekte physikalische Einheit
+                    const v1 = pt1.speedKmh / 3.6;
+                    const v2 = pt2.speedKmh / 3.6;
+                    
+                    // a = delta V / delta t
+                    const acceleration = (v2 - v1) / timeDiffSec;
+
+                    // Werte speichern (Aussortieren von krassen GPS-Fehlern, z.B. > 15 m/s²)
+                    if (acceleration > maxAcceleration && acceleration < 15) {
+                        maxAcceleration = acceleration;
+                    }
+                    // Negative Beschleunigung = Bremsen
+                    if (acceleration < maxDeceleration && acceleration > -15) {
+                        maxDeceleration = acceleration;
+                    }
+                }
+            }
         }
 
-        // 3. Dauer und Durchschnittsgeschwindigkeit berechnen
         const startTime = routeData[0].time;
         const endTime = routeData[routeData.length - 1].time;
         let durationStr = "00:00";
@@ -417,25 +454,26 @@
             const hours = Math.floor(diffMins / 60);
             const mins = diffMins % 60;
             
-            // Formatieren zu z.B. "1h 24m" oder "45m"
             durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 
-            // Durchschnittsgeschwindigkeit = Strecke / Zeit(in Stunden)
             const durationHours = diffMs / (1000 * 60 * 60);
             if (durationHours > 0) {
                 avgSpeed = totalDistanceKm / durationHours;
             }
         }
 
-        // --- Werte in das HTML schreiben ---
         document.getElementById('stat-dist').innerText = totalDistanceKm.toFixed(2);
         document.getElementById('stat-time').innerText = durationStr;
         document.getElementById('stat-max-speed').innerText = Math.round(maxSpeed);
         document.getElementById('stat-avg-speed').innerText = Math.round(avgSpeed);
         document.getElementById('stat-max-ele').innerText = Math.round(maxEle);
         document.getElementById('stat-min-ele').innerText = Math.round(minEle);
+        
+        // NEU: Beschleunigung und Bremskraft eintragen (auf 1 Nachkommastelle gerundet)
+        document.getElementById('stat-max-accel').innerText = maxAcceleration.toFixed(1);
+        // Bei der Bremse nehmen wir den absoluten Wert (ohne Minuszeichen), liest sich schöner
+        document.getElementById('stat-max-brake').innerText = Math.abs(maxDeceleration).toFixed(1);
 
-        // Statistik-Container sichtbar machen
         document.getElementById('statsContainer').classList.remove('hidden');
     }
 
