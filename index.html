@@ -65,40 +65,58 @@
                     </button>
                 </div>
                 
-                <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4">
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Distanz</p>
                         <p class="text-2xl font-bold text-cyan-400"><span id="stat-dist">0.00</span> <span class="text-sm font-normal text-slate-400">km</span></p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Dauer</p>
                         <p class="text-2xl font-bold text-white" id="stat-time">00:00</p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Top-Speed</p>
                         <p class="text-2xl font-bold text-white"><span id="stat-max-speed">0</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Ø-Speed</p>
                         <p class="text-2xl font-bold text-white"><span id="stat-avg-speed">0</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Höhe</p>
                         <p class="text-2xl font-bold text-amber-500"><span id="stat-max-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Min Höhe</p>
                         <p class="text-2xl font-bold text-amber-500"><span id="stat-min-ele">0</span> <span class="text-sm font-normal text-slate-400">m</span></p>
                     </div>
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Gas</p>
                         <p class="text-2xl font-bold text-green-400"><span id="stat-max-accel">0.00</span> <span class="text-sm font-normal text-slate-400">G</span></p>
                     </div>
-
-                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center">
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
                         <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Max Bremse</p>
                         <p class="text-2xl font-bold text-red-400"><span id="stat-max-brake">0.00</span> <span class="text-sm font-normal text-slate-400">G</span></p>
                     </div>
+
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Temperatur</p>
+                        <p class="text-2xl font-bold text-yellow-300"><span id="stat-temp">-</span> <span class="text-sm font-normal text-slate-400">°C</span></p>
+                    </div>
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Feuchtigkeit</p>
+                        <p class="text-2xl font-bold text-blue-400"><span id="stat-hum">-</span> <span class="text-sm font-normal text-slate-400">%</span></p>
+                    </div>
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Wind</p>
+                        <p class="text-2xl font-bold text-teal-400"><span id="stat-wind">-</span> <span class="text-sm font-normal text-slate-400">km/h</span></p>
+                    </div>
+                    <div class="bg-slate-800 p-4 rounded-xl shadow-inner text-center flex flex-col justify-center border border-slate-700/50">
+                        <p class="text-slate-400 text-xs uppercase tracking-wider mb-1">Luftdruck</p>
+                        <p class="text-2xl font-bold text-indigo-400"><span id="stat-press">-</span> <span class="text-sm font-normal text-slate-400">hPa</span></p>
+                    </div>
+
                 </div>
                 </div>
             </div>
@@ -222,14 +240,44 @@
         loadTrip(this.value);
     });
 
-    // Diese Funktion holt die GPS-Punkte für eine bestimmte Session-ID (sid)
+    // Diese Funktion holt die GPS-Punkte UND die Metadaten für eine bestimmte Session-ID
     function loadTrip(sid) {
+        // 1. GPS-Daten holen
         const routeResult = globalDB.exec(`
             SELECT latitude, longitude, speed, altitude, timestamp 
             FROM pottb 
             WHERE sid = ${sid} 
             ORDER BY timestamp ASC
         `);
+
+        // 2. Wetter- und Metadaten aus der Session-Tabelle holen!
+        const sessionResult = globalDB.exec(`
+            SELECT temperature, humidity, windSpeed, pressure, note 
+            FROM sesstb 
+            WHERE rowid = ${sid}
+        `);
+
+        // Wetterdaten ins HTML füttern
+        if (sessionResult.length > 0) {
+            const row = sessionResult[0].values[0];
+            
+            // Manche Werte können "null" sein, wenn die App beim Start kein Wetter laden konnte
+            document.getElementById('stat-temp').innerText = row[0] !== null ? Math.round(row[0]) : '-';
+            document.getElementById('stat-hum').innerText = row[1] !== null ? Math.round(row[1]) : '-';
+            
+            // Windgeschwindigkeiten werden oft in m/s gespeichert, wir rechnen in km/h um (* 3.6)
+            document.getElementById('stat-wind').innerText = row[2] !== null ? Math.round(row[2] * 3.6) : '-';
+            document.getElementById('stat-press').innerText = row[3] !== null ? Math.round(row[3]) : '-';
+            
+            // Wenn eine Notiz (note) da ist, könnten wir die sogar in die Konsole loggen
+            if(row[4]) console.log("Notiz zur Fahrt:", row[4]);
+        } else {
+            // Fallback, falls absolut gar nichts drinsteht
+            document.getElementById('stat-temp').innerText = '-';
+            document.getElementById('stat-hum').innerText = '-';
+            document.getElementById('stat-wind').innerText = '-';
+            document.getElementById('stat-press').innerText = '-';
+        }
 
         if (routeResult.length === 0) {
             console.log("Keine GPS-Punkte für diese Tour gefunden.");
@@ -246,7 +294,6 @@
             const ele = row[3];
             let timeVal = row[4]; 
             
-            // Unix-Timestamp in Millisekunden umrechnen, falls er in Sekunden gespeichert ist
             if (timeVal < 10000000000) timeVal *= 1000;
             const dateObj = new Date(timeVal);
 
@@ -255,16 +302,14 @@
                 lon: lon,
                 elevation: ele,
                 time: dateObj,
-                speedKmh: speedMs * 3.6 // m/s in km/h
+                speedKmh: speedMs * 3.6
             });
         });
 
         console.log(`Erfolgreich geladen! ${currentRouteData.length} Wegpunkte auf der Karte.`);
 
-        // Toggle-Button für die Farbe sichtbar machen
         document.getElementById('toggleColorBtn').classList.remove('hidden');
         
-        // Karte, Chart und Statistiken mit den neuen Daten updaten!
         drawMap(currentRouteData);
         drawChart(currentRouteData);
         calculateStats(currentRouteData);
