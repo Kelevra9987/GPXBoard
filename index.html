@@ -30,8 +30,8 @@
                 </select>
 
                 <label class="cursor-pointer bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-2 px-6 rounded-xl shadow-lg transition-all duration-300 ease-in-out transform hover:-translate-y-1 whitespace-nowrap">
-                    Datenbank laden
-                    <input type="file" id="dbInput" accept=".db,.sqlite" class="hidden" />
+                    GPX / DB laden
+                    <input type="file" id="fileInput" accept=".gpx,.db,.sqlite" class="hidden" />
                 </label>
             </div>
         </div>
@@ -139,12 +139,13 @@
 
     // --- Globale Variablen ---
     let map; 
-    let mapLayerGroup; // Ein unsichtbarer Ordner, in den wir alle Linien packen
-    let currentRouteData = []; // Hier speichern wir die Route, damit wir sie auf Knopfdruck neu zeichnen können
+    let mapLayerGroup;
+    let currentRouteData = []; 
     let isSpeedColorMode = false;
+    let globalDB = null; 
+    let vibeChartInstance = null;
 
     // --- 1. Karte SOFORT laden ---
-    // Startpunkt Leipzig (deine Heimat), Zoom-Level 13
     map = L.map('map').setView([51.340199, 12.360103], 13); 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; CARTO',
@@ -152,60 +153,99 @@
         maxZoom: 20
     }).addTo(map);
 
-    // Diese Gruppe liegt auf der Karte. Wenn wir sie leeren, verschwindet die Route.
     mapLayerGroup = L.featureGroup().addTo(map);
-
 
     // --- 2. Button-Logik für Speed-Toggle ---
     const toggleBtn = document.getElementById('toggleColorBtn');
     toggleBtn.addEventListener('click', function() {
-        // Modus umkehren
         isSpeedColorMode = !isSpeedColorMode;
-        
-        // Button optisch anpassen
         this.innerText = isSpeedColorMode ? "Speed-Map: AN" : "Speed-Map: AUS";
         this.classList.toggle('bg-cyan-600', isSpeedColorMode);
         this.classList.toggle('text-slate-900', isSpeedColorMode);
         this.classList.toggle('bg-slate-600', !isSpeedColorMode);
         
-        // Route neu zeichnen, wenn Daten da sind
-        if (currentRouteData.length > 0) {
-            drawMap(currentRouteData);
-        }
+        if (currentRouteData.length > 0) drawMap(currentRouteData);
     });
 
-
-    // --- 3. SQLite Upload und Multi-Tour-Parsing ---
-    const dbInput = document.getElementById('dbInput');
+    // --- 3. All-in-One Upload (GPX & SQLite) ---
+    const fileInput = document.getElementById('fileInput');
     const tripSelector = document.getElementById('tripSelector');
-    let globalDB = null; // Wir speichern die Datenbank global ab
 
-    dbInput.addEventListener('change', function(event) {
+    fileInput.addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (!file) return;
 
-        console.log("Datenbank ausgewählt:", file.name);
-
+        console.log("Datei ausgewählt:", file.name);
         const reader = new FileReader();
-        reader.onload = async function(e) {
-            // Datenbanken sind binär, also Uint8Array nutzen
-            const Uints = new Uint8Array(e.target.result);
-            await parseDatabase(Uints);
-        };
-        reader.readAsArrayBuffer(file); 
+        const fileName = file.name.toLowerCase();
+
+        if (fileName.endsWith('.gpx')) {
+            console.log("GPX-Modus aktiviert!");
+            tripSelector.classList.add('hidden'); 
+            
+            reader.onload = function(e) {
+                parseGPX(e.target.result);
+            };
+            reader.readAsText(file); 
+            
+        } else if (fileName.endsWith('.db') || fileName.endsWith('.sqlite')) {
+            console.log("Datenbank-Modus aktiviert!");
+            
+            reader.onload = async function(e) {
+                const Uints = new Uint8Array(e.target.result);
+                await parseDatabase(Uints);
+            };
+            reader.readAsArrayBuffer(file); 
+            
+        } else {
+            alert("Bitte lade eine .gpx oder .db Datei hoch!");
+        }
     });
 
+    // --- 3a. GPX Parser ---
+    function parseGPX(gpxText) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(gpxText, "text/xml");
+        const trackPoints = xmlDoc.querySelectorAll("trkpt");
+        currentRouteData = [];
+
+        trackPoints.forEach(pt => {
+            const lat = parseFloat(pt.getAttribute("lat"));
+            const lon = parseFloat(pt.getAttribute("lon"));
+            const eleNode = pt.querySelector("ele");
+            const timeNode = pt.querySelector("time");
+            const speedNode = pt.querySelector("speed");
+
+            currentRouteData.push({
+                lat: lat,
+                lon: lon,
+                elevation: eleNode ? parseFloat(eleNode.textContent) : 0,
+                time: timeNode ? new Date(timeNode.textContent) : null,
+                speedKmh: speedNode ? parseFloat(speedNode.textContent) * 3.6 : 0
+            });
+        });
+
+        console.log(`GPX erfolgreich geparst! ${currentRouteData.length} Wegpunkte gefunden.`);
+
+        document.getElementById('stat-temp').innerText = '-';
+        document.getElementById('stat-hum').innerText = '-';
+        document.getElementById('stat-wind').innerText = '-';
+        document.getElementById('stat-press').innerText = '-';
+
+        document.getElementById('toggleColorBtn').classList.remove('hidden');
+        drawMap(currentRouteData);
+        drawChart(currentRouteData);
+        calculateStats(currentRouteData);
+    }
+
+    // --- 3b. SQLite Parser ---
     async function parseDatabase(uints) {
         console.log("Initialisiere Datenbank-Engine...");
-        
-        // sql.js laden
         const SQL = await initSqlJs({
             locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
         });
         
         globalDB = new SQL.Database(uints);
-        
-        // Hole alle Fahrten aus der Session-Tabelle, sortiert nach der neuesten
         const sessionsQuery = globalDB.exec("SELECT rowid, start, distance FROM sesstb ORDER BY rowid DESC");
         
         if (sessionsQuery.length === 0) {
@@ -213,13 +253,12 @@
             return;
         }
 
-        // Dropdown leeren und neu befüllen
         tripSelector.innerHTML = '';
         const rows = sessionsQuery[0].values;
         
         rows.forEach(row => {
             const sid = row[0];
-            const startText = row[1] || `Tour vom ${sid}`; // Fallback, falls 'start' leer ist
+            const startText = row[1] || `Tour ${sid}`; 
             
             const option = document.createElement('option');
             option.value = sid;
@@ -227,113 +266,58 @@
             tripSelector.appendChild(option);
         });
 
-        // Dropdown sichtbar machen
         tripSelector.classList.remove('hidden');
-
-        // Die allererste Fahrt aus der Liste direkt laden
         loadTrip(rows[0][0]);
     }
 
-    // Wenn der Nutzer eine andere Fahrt im Dropdown auswählt
     tripSelector.addEventListener('change', function() {
-        console.log("Lade Tour ID:", this.value);
         loadTrip(this.value);
     });
 
-    // Diese Funktion holt die GPS-Punkte UND die Metadaten für eine bestimmte Session-ID
     function loadTrip(sid) {
-        // 1. GPS-Daten holen
-        const routeResult = globalDB.exec(`
-            SELECT latitude, longitude, speed, altitude, timestamp 
-            FROM pottb 
-            WHERE sid = ${sid} 
-            ORDER BY timestamp ASC
-        `);
+        const routeResult = globalDB.exec(`SELECT latitude, longitude, speed, altitude, timestamp FROM pottb WHERE sid = ${sid} ORDER BY timestamp ASC`);
+        const sessionResult = globalDB.exec(`SELECT temperature, humidity, windSpeed, pressure, note FROM sesstb WHERE rowid = ${sid}`);
 
-        // 2. Wetter- und Metadaten aus der Session-Tabelle holen!
-        const sessionResult = globalDB.exec(`
-            SELECT temperature, humidity, windSpeed, pressure, note 
-            FROM sesstb 
-            WHERE rowid = ${sid}
-        `);
-
-        // Wetterdaten ins HTML füttern
         if (sessionResult.length > 0) {
             const row = sessionResult[0].values[0];
-            
-            // Manche Werte können "null" sein, wenn die App beim Start kein Wetter laden konnte
             document.getElementById('stat-temp').innerText = row[0] !== null ? Math.round(row[0]) : '-';
             document.getElementById('stat-hum').innerText = row[1] !== null ? Math.round(row[1]) : '-';
-            
-            // Windgeschwindigkeiten werden oft in m/s gespeichert, wir rechnen in km/h um (* 3.6)
             document.getElementById('stat-wind').innerText = row[2] !== null ? Math.round(row[2] * 3.6) : '-';
             document.getElementById('stat-press').innerText = row[3] !== null ? Math.round(row[3]) : '-';
-            
-            // Wenn eine Notiz (note) da ist, könnten wir die sogar in die Konsole loggen
             if(row[4]) console.log("Notiz zur Fahrt:", row[4]);
         } else {
-            // Fallback, falls absolut gar nichts drinsteht
             document.getElementById('stat-temp').innerText = '-';
             document.getElementById('stat-hum').innerText = '-';
             document.getElementById('stat-wind').innerText = '-';
             document.getElementById('stat-press').innerText = '-';
         }
 
-        if (routeResult.length === 0) {
-            console.log("Keine GPS-Punkte für diese Tour gefunden.");
-            return;
-        }
+        if (routeResult.length === 0) return;
 
         currentRouteData = [];
-        const rows = routeResult[0].values;
-        
-        rows.forEach(row => {
-            const lat = row[0];
-            const lon = row[1];
-            const speedMs = row[2];
-            const ele = row[3];
+        routeResult[0].values.forEach(row => {
             let timeVal = row[4]; 
-            
             if (timeVal < 10000000000) timeVal *= 1000;
-            const dateObj = new Date(timeVal);
-
             currentRouteData.push({
-                lat: lat,
-                lon: lon,
-                elevation: ele,
-                time: dateObj,
-                speedKmh: speedMs * 3.6
+                lat: row[0], lon: row[1], elevation: row[3],
+                time: new Date(timeVal), speedKmh: row[2] * 3.6
             });
         });
 
-        console.log(`Erfolgreich geladen! ${currentRouteData.length} Wegpunkte auf der Karte.`);
-
         document.getElementById('toggleColorBtn').classList.remove('hidden');
-        
         drawMap(currentRouteData);
         drawChart(currentRouteData);
         calculateStats(currentRouteData);
     }
 
-
-    // --- 4. Route auf die Karte zeichnen ---
+    // --- 4. Karte zeichnen ---
     function drawMap(routeData) {
-        // Alte Route restlos entfernen
         mapLayerGroup.clearLayers();
 
-        // 1. Die Route zeichnen (entweder einfarbig oder als Speed-Map)
         if (!isSpeedColorMode) {
-            // STANDARD MODUS
             const coordinates = routeData.map(pt => [pt.lat, pt.lon]);
-            L.polyline(coordinates, {
-                color: '#06b6d4', 
-                weight: 4,        
-                opacity: 0.8,     
-                lineJoin: 'round'
-            }).addTo(mapLayerGroup);
-
+            L.polyline(coordinates, { color: '#06b6d4', weight: 4, opacity: 0.8, lineJoin: 'round' }).addTo(mapLayerGroup);
         } else {
-            // SPEED MODUS
             const speeds = routeData.map(pt => pt.speedKmh);
             let maxSpeedForColor = Math.max(...speeds);
             if (maxSpeedForColor <= 0) maxSpeedForColor = 1; 
@@ -341,39 +325,20 @@
             for (let i = 0; i < routeData.length - 1; i++) {
                 const p1 = routeData[i];
                 const p2 = routeData[i+1];
-                const currentSpeed = p1.speedKmh;
-                
-                const hue = 200 - ((currentSpeed / maxSpeedForColor) * 200);
-                const color = `hsl(${hue}, 100%, 50%)`;
-
+                const hue = 200 - ((p1.speedKmh / maxSpeedForColor) * 200);
                 L.polyline([[p1.lat, p1.lon], [p2.lat, p2.lon]], {
-                    color: color,
-                    weight: 4,
-                    opacity: 0.9,
-                    lineJoin: 'round'
+                    color: `hsl(${hue}, 100%, 50%)`, weight: 4, opacity: 0.9, lineJoin: 'round'
                 }).addTo(mapLayerGroup);
             }
         }
 
-        // 2. Den Top-Speed-Punkt finden
         let maxSpeedPoint = routeData[0];
-        routeData.forEach(pt => {
-            if (pt.speedKmh > maxSpeedPoint.speedKmh) {
-                maxSpeedPoint = pt;
-            }
-        });
+        routeData.forEach(pt => { if (pt.speedKmh > maxSpeedPoint.speedKmh) maxSpeedPoint = pt; });
 
-        // 3. Top-Speed-Marker setzen
         if (maxSpeedPoint && maxSpeedPoint.speedKmh > 0) {
             const speedMarker = L.circleMarker([maxSpeedPoint.lat, maxSpeedPoint.lon], {
-                radius: 8,
-                fillColor: "#ef4444", // Rot
-                color: "#ffffff",
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.9
+                radius: 8, fillColor: "#ef4444", color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.9
             }).addTo(mapLayerGroup);
-
             const timeString = maxSpeedPoint.time ? maxSpeedPoint.time.toLocaleTimeString('de-DE') : '';
             speedMarker.bindPopup(`
                 <div style="text-align: center; font-family: sans-serif;">
@@ -384,65 +349,25 @@
             `);
         }
 
-        // 4. Start- und End-Marker setzen
         if (routeData.length > 0) {
             const startPt = routeData[0];
             const endPt = routeData[routeData.length - 1];
 
-            // Start-Marker (Grün)
-            const startMarker = L.circleMarker([startPt.lat, startPt.lon], {
-                radius: 6,
-                fillColor: "#22c55e", // Grün
-                color: "#ffffff",
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.9
-            }).addTo(mapLayerGroup);
+            L.circleMarker([startPt.lat, startPt.lon], { radius: 6, fillColor: "#22c55e", color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(mapLayerGroup)
+                .bindPopup(`<div style="text-align: center; font-family: sans-serif;"><strong style="color: #22c55e; font-size: 1.1rem;">START</strong></div>`);
 
-            const startTimeStr = startPt.time ? startPt.time.toLocaleTimeString('de-DE') : '';
-            startMarker.bindPopup(`
-                <div style="text-align: center; font-family: sans-serif;">
-                    <strong style="color: #22c55e; font-size: 1.1rem;">START</strong><br>
-                    <span style="color: #64748b; font-size: 0.8rem;">um ${startTimeStr} Uhr</span>
-                </div>
-            `);
-
-            // End-Marker (Violett)
-            const endMarker = L.circleMarker([endPt.lat, endPt.lon], {
-                radius: 6,
-                fillColor: "#d946ef", // Violett
-                color: "#ffffff",
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.9
-            }).addTo(mapLayerGroup);
-
-            const endTimeStr = endPt.time ? endPt.time.toLocaleTimeString('de-DE') : '';
-            endMarker.bindPopup(`
-                <div style="text-align: center; font-family: sans-serif;">
-                    <strong style="color: #d946ef; font-size: 1.1rem;">ZIEL</strong><br>
-                    <span style="color: #64748b; font-size: 0.8rem;">um ${endTimeStr} Uhr</span>
-                </div>
-            `);
+            L.circleMarker([endPt.lat, endPt.lon], { radius: 6, fillColor: "#d946ef", color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(mapLayerGroup)
+                .bindPopup(`<div style="text-align: center; font-family: sans-serif;"><strong style="color: #d946ef; font-size: 1.1rem;">ZIEL</strong></div>`);
         }
 
-        // Karte geschmeidig an die neue Route anpassen
         map.fitBounds(mapLayerGroup.getBounds(), { padding: [20, 20] });
     }
-    // --- 5. Chart.js Graph zeichnen ---
-    // Globale Variable für den Chart, damit wir ihn bei neuem Upload zerstören und neu bauen können
-    let vibeChartInstance = null;
 
+    // --- 5. Chart.js Graph zeichnen ---
     function drawChart(routeData) {
         const ctx = document.getElementById('vibeChart').getContext('2d');
+        if (vibeChartInstance) vibeChartInstance.destroy();
 
-        // Alten Chart killen, bevor wir einen neuen malen (verhindert Glitches)
-        if (vibeChartInstance) {
-            vibeChartInstance.destroy();
-        }
-
-        // Daten für den Chart vorbereiten
-        // Wir formatieren die Zeitstempel zu lesbaren Uhrzeiten (HH:MM:SS)
         const labels = routeData.map(pt => pt.time ? pt.time.toLocaleTimeString('de-DE') : '');
         const speedData = routeData.map(pt => pt.speedKmh);
         const eleData = routeData.map(pt => pt.elevation);
@@ -452,74 +377,29 @@
             data: {
                 labels: labels,
                 datasets: [
-                    {
-                        label: 'Speed (km/h)',
-                        data: speedData,
-                        borderColor: '#06b6d4', // Unser Cyan-Blau
-                        backgroundColor: 'rgba(6, 182, 212, 0.1)', // Leichter Schimmer unter der Linie
-                        borderWidth: 2,
-                        yAxisID: 'y', // Bindung an linke Achse
-                        fill: true,
-                        pointRadius: 0, // Versteckt die kleinen Punkte für einen cleanen Look
-                        tension: 0.4 // Macht die Linie geschmeidig abgerundet
-                    },
-                    {
-                        label: 'Höhe (m)',
-                        data: eleData,
-                        borderColor: '#f59e0b', // Amber/Orange
-                        backgroundColor: 'rgba(245, 158, 11, 0.0)',
-                        borderWidth: 2,
-                        yAxisID: 'y1', // Bindung an rechte Achse
-                        fill: false,
-                        pointRadius: 0,
-                        tension: 0.4
-                    }
+                    { label: 'Speed (km/h)', data: speedData, borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.1)', borderWidth: 2, yAxisID: 'y', fill: true, pointRadius: 0, tension: 0.4 },
+                    { label: 'Höhe (m)', data: eleData, borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.0)', borderWidth: 2, yAxisID: 'y1', fill: false, pointRadius: 0, tension: 0.4 }
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false, // Tooltip zeigt beide Werte, wenn man nur in der Nähe ist
-                },
-                plugins: {
-                    legend: {
-                        labels: { color: '#cbd5e1' } // Textfarbe Legende
-                    }
-                },
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { labels: { color: '#cbd5e1' } } },
                 scales: {
-                    x: {
-                        ticks: { color: '#94a3b8', maxTicksLimit: 8 }, // Nicht zu viele Zeiten auf der X-Achse
-                        grid: { color: '#334155' } // Dunkles Gitternetz
-                    },
-                    y: { // Linke Achse (Speed)
-                        type: 'linear',
-                        display: true,
-                        position: 'left',
-                        title: { display: true, text: 'km/h', color: '#06b6d4' },
-                        ticks: { color: '#06b6d4' },
-                        grid: { color: '#334155' }
-                    },
-                    y1: { // Rechte Achse (Höhe)
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        title: { display: true, text: 'Meter', color: '#f59e0b' },
-                        ticks: { color: '#f59e0b' },
-                        grid: { drawOnChartArea: false } // Verhindert Gitter-Chaos
-                    }
+                    x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: '#334155' } },
+                    y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'km/h', color: '#06b6d4' }, ticks: { color: '#06b6d4' }, grid: { color: '#334155' } },
+                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Meter', color: '#f59e0b' }, ticks: { color: '#f59e0b' }, grid: { drawOnChartArea: false } }
                 }
             }
         });
     }
-    // --- 6. Statistiken berechnen und anzeigen ---
+
+    // --- 6. Statistiken berechnen ---
     function calculateStats(routeData) {
         if (routeData.length < 2) return;
 
         const speeds = routeData.map(pt => pt.speedKmh);
         const elevations = routeData.map(pt => pt.elevation);
-
         const maxSpeed = Math.max(...speeds);
         const maxEle = Math.max(...elevations);
         const minEle = Math.min(...elevations);
@@ -531,34 +411,17 @@
         for (let i = 0; i < routeData.length - 1; i++) {
             const pt1 = routeData[i];
             const pt2 = routeData[i+1];
+            totalDistanceKm += getDistanceFromLatLonInKm(pt1.lat, pt1.lon, pt2.lat, pt2.lon);
 
-            // Distanz
-            totalDistanceKm += getDistanceFromLatLonInKm(
-                pt1.lat, pt1.lon, 
-                pt2.lat, pt2.lon
-            );
-
-            // Beschleunigung berechnen
             if (pt1.time && pt2.time) {
-                // Zeitdifferenz in Sekunden
                 const timeDiffSec = (pt2.time - pt1.time) / 1000;
-                
                 if (timeDiffSec > 0) {
-                    // Geschwindigkeit von km/h zurück in m/s für die korrekte physikalische Einheit
                     const v1 = pt1.speedKmh / 3.6;
                     const v2 = pt2.speedKmh / 3.6;
-                    
-                    // a = delta V / delta t
                     const acceleration = (v2 - v1) / timeDiffSec;
 
-                    // Werte speichern (Aussortieren von krassen GPS-Fehlern, z.B. > 15 m/s²)
-                    if (acceleration > maxAcceleration && acceleration < 15) {
-                        maxAcceleration = acceleration;
-                    }
-                    // Negative Beschleunigung = Bremsen
-                    if (acceleration < maxDeceleration && acceleration > -15) {
-                        maxDeceleration = acceleration;
-                    }
+                    if (acceleration > maxAcceleration && acceleration < 15) maxAcceleration = acceleration;
+                    if (acceleration < maxDeceleration && acceleration > -15) maxDeceleration = acceleration;
                 }
             }
         }
@@ -572,14 +435,10 @@
             const diffMs = endTime - startTime;
             const diffMins = Math.floor(diffMs / 60000);
             const hours = Math.floor(diffMins / 60);
-            const mins = diffMins % 60;
+            durationStr = hours > 0 ? `${hours}h ${diffMins % 60}m` : `${diffMins % 60}m`;
             
-            durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-
-            const durationHours = diffMs / (1000 * 60 * 60);
-            if (durationHours > 0) {
-                avgSpeed = totalDistanceKm / durationHours;
-            }
+            const durationHours = diffMs / 3600000;
+            if (durationHours > 0) avgSpeed = totalDistanceKm / durationHours;
         }
 
         document.getElementById('stat-dist').innerText = totalDistanceKm.toFixed(2);
@@ -589,69 +448,42 @@
         document.getElementById('stat-max-ele').innerText = Math.round(maxEle);
         document.getElementById('stat-min-ele').innerText = Math.round(minEle);
         
-        // NEU: Umrechnung in G-Kräfte (1 G = 9.81 m/s²)
-        const gForceAccel = maxAcceleration / 9.81;
-        const gForceBrake = Math.abs(maxDeceleration) / 9.81;
+        document.getElementById('stat-max-accel').innerText = (maxAcceleration / 9.81).toFixed(2);
+        document.getElementById('stat-max-brake').innerText = (Math.abs(maxDeceleration) / 9.81).toFixed(2);
 
-        // Wir runden auf 2 Nachkommastellen für die feine Telemetrie-Optik
-        document.getElementById('stat-max-accel').innerText = gForceAccel.toFixed(2);
-        document.getElementById('stat-max-brake').innerText = gForceBrake.toFixed(2);
-
-        // Statistik-Container sichtbar machen
         document.getElementById('statsContainer').classList.remove('hidden');
     }
 
-    // Hilfsfunktion: Berechnet Distanz zwischen zwei GPS-Koordinaten in Kilometern
     function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
-        const R = 6371; // Erdradius in km
+        const R = 6371; 
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
-    // --- 7. Export als Bild (mit Name und Graphen) ---
-    document.getElementById('exportBtn').addEventListener('click', function() {
-        
-        // 1. Namen des Fahrers abfragen
-        const riderName = prompt("Wer ist diese Legenden-Tour gefahren?", "Vibe Rider") || "Vibe Rider";
-        
-        // 2. Datum der Fahrt aus den GPX-Daten holen (z. B. "30.6.2026")
-        const tourDate = currentRouteData[0]?.time 
-            ? currentRouteData[0].time.toLocaleDateString('de-DE') 
-            : 'Unbekanntes Datum';
 
-        // Elemente laden
+    // --- 7. Export als Bild ---
+    document.getElementById('exportBtn').addEventListener('click', function() {
+        const riderName = prompt("Wer ist diese Legenden-Tour gefahren?", "Vibe Rider") || "Vibe Rider";
+        const tourDate = currentRouteData[0]?.time ? currentRouteData[0].time.toLocaleDateString('de-DE') : 'Unbekanntes Datum';
         const exportArea = document.getElementById('exportArea');
         const btn = this;
         const watermark = document.getElementById('watermark');
         
-        // 3. Wasserzeichen ausfüllen und anzeigen, Button verstecken
         document.getElementById('wm-name').innerText = riderName;
         document.getElementById('wm-date').innerText = tourDate;
         watermark.classList.remove('hidden');
         btn.style.display = 'none';
         
-        // 4. Foto schießen!
-        html2canvas(exportArea, {
-            backgroundColor: '#1e293b', // Entspricht tailwind slate-800 für sauberen Hintergrund
-            scale: 2 // Hohe Auflösung
-        }).then(canvas => {
-            
-            // 5. Nach dem Foto: Wasserzeichen wieder verstecken und Button anzeigen
+        html2canvas(exportArea, { backgroundColor: '#1e293b', scale: 2 }).then(canvas => {
             watermark.classList.add('hidden');
             btn.style.display = 'flex';
-            
-            // 6. Download starten
             const link = document.createElement('a');
-            // Dateiname wird automatisch aus dem Fahrernamen generiert
             link.download = `Tour-${riderName.replace(/\s+/g, '-')}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
         });
     });
-</script>
+    </script>
 </body>
 </html>
